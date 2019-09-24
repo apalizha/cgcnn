@@ -1,8 +1,7 @@
 from __future__ import print_function, division
-
 import torch
-
 import torch.nn as nn
+import numpy as np
 
 
 class ConvLayer(nn.Module):
@@ -27,10 +26,10 @@ class ConvLayer(nn.Module):
         self.fc_full = nn.Linear(2*self.atom_fea_len+self.nbr_fea_len,
                                  2*self.atom_fea_len)
         self.sigmoid = nn.Sigmoid()
-        self.softplus1 = nn.LeakyReLU()
+        self.softplus1 = nn.Softplus()
         self.bn1 = nn.BatchNorm1d(2*self.atom_fea_len)
         self.bn2 = nn.BatchNorm1d(self.atom_fea_len)
-        self.softplus2 = nn.LeakyReLU()
+        self.softplus2 = nn.Softplus()
 
     def forward(self, atom_in_fea, nbr_fea, nbr_fea_idx):
         """
@@ -82,7 +81,7 @@ class CrystalGraphConvNet(nn.Module):
     """
     def __init__(self, orig_atom_fea_len, nbr_fea_len,
                  atom_fea_len=64, n_conv=3, h_fea_len=128, n_h=1,
-                 classification=False):
+                 classification=False, use_distance=False,cutoff=2):
         """
         Initialize CrystalGraphConvNet.
 
@@ -103,6 +102,9 @@ class CrystalGraphConvNet(nn.Module):
           Number of hidden layers after pooling
         """
         super(CrystalGraphConvNet, self).__init__()
+        self.use_distance = use_distance
+        if self.use_distance:
+            self.cutoff = cutoff
         self.classification = classification
         self.embedding = nn.Linear(orig_atom_fea_len, atom_fea_len)
         self.convs = nn.ModuleList([ConvLayer(atom_fea_len=atom_fea_len,
@@ -111,17 +113,16 @@ class CrystalGraphConvNet(nn.Module):
         
         self.conv_to_fc = nn.Linear(atom_fea_len, h_fea_len)
 
-        self.conv_to_fc_softplus = nn.LeakyReLU()
+        self.conv_to_fc_softplus = nn.Softplus()
         if n_h > 1:
             self.fcs = nn.ModuleList([nn.Linear(h_fea_len, h_fea_len)
                                       for _ in range(n_h-1)])
-            self.softpluses = nn.ModuleList([nn.LeakyReLU()
+            self.softpluses = nn.ModuleList([nn.Softplus()
                                              for _ in range(n_h-1)])
             self.bn = nn.ModuleList([nn.BatchNorm1d(h_fea_len)
                                              for _ in range(n_h-1)])
             
         self.visualization_layer = nn.Linear(h_fea_len, 1)
-
         if self.classification:
             self.fc_out = nn.Linear(h_fea_len, 2)
         else:
@@ -135,7 +136,7 @@ class CrystalGraphConvNet(nn.Module):
         for module in self.convs:
             module.to('cuda',non_blocking=True)
 
-    def forward(self, atom_fea, nbr_fea, nbr_fea_idx, crystal_atom_idx, distances, connection_atom_idx):
+    def forward(self, atom_fea, nbr_fea, nbr_fea_idx, crystal_atom_idx, distances):#, connection_atom_idx):
         """
         Forward pass
 
@@ -170,6 +171,7 @@ class CrystalGraphConvNet(nn.Module):
           Per atom contributions
 
         """
+
         atom_fea = self.embedding(atom_fea)
         for conv_func in self.convs:
             atom_fea = conv_func(atom_fea, nbr_fea, nbr_fea_idx)
@@ -181,10 +183,9 @@ class CrystalGraphConvNet(nn.Module):
                 atom_fea = softplus(bn(fc(atom_fea)))
 
         atom_fea = self.visualization_layer(atom_fea)
-        atom_fea_vis = atom_fea*connection_atom_idx
 
-        out = self.pooling(atom_fea_vis, crystal_atom_idx, distances)
-        return out, atom_fea_vis, atom_fea
+        out = self.pooling(atom_fea, crystal_atom_idx, distances)
+        return out, atom_fea
 
     def pooling(self, atom_fea, crystal_atom_idx, distances):
         """
@@ -205,6 +206,6 @@ class CrystalGraphConvNet(nn.Module):
         """
         assert sum([len(idx_map) for idx_map in crystal_atom_idx]) ==\
             atom_fea.data.shape[0]
-        summed_fea = torch.unsqueeze(torch.stack([torch.sum(atom_fea[idx_map])/len(torch.nonzero(atom_fea[idx_map])) 
-                                                      for idx_map in crystal_atom_idx]),1)
-        return summed_fea
+        summed_fea = [torch.mean(atom_fea[idx_map], dim=0, keepdim=True)
+                      for idx_map in crystal_atom_idx]
+        return torch.cat(summed_fea, dim=0)

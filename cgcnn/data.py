@@ -67,13 +67,6 @@ def collate_pool(dataset_list):
             
         n_i = atom_fea.shape[0]  # number of atoms for this crystal
         batch_atom_fea.append(atom_fea)
-        
-        #Creating Mask that only considers atoms with distance <= 2
-        connection_idx = np.where(distances <= 2)[0]
-        connection_base = np.zeros((n_i,1))
-        connection_base[connection_idx] = 1
-        connection_atom_idx.append(torch.FloatTensor(connection_base))
-
         batch_distances.append(distances)
         batch_nbr_fea.append(nbr_fea)
         batch_nbr_fea_idx.append(nbr_fea_idx+base_idx)
@@ -85,8 +78,7 @@ def collate_pool(dataset_list):
             'nbr_fea':torch.cat(batch_nbr_fea, dim=0), 
             'nbr_fea_idx':torch.cat(batch_nbr_fea_idx, dim=0), 
             'crystal_atom_idx':crystal_atom_idx,
-            'distances':torch.cat(batch_distances,dim=0),
-            'connection_atom_idx':torch.cat(connection_atom_idx, dim=0)}, torch.FloatTensor(batch_target)
+            'distances':torch.cat(batch_distances,dim=0)}, torch.FloatTensor(batch_target)
 
 
 class GaussianDistance(object):
@@ -375,14 +367,17 @@ class StructureData():
             nbr_fea_idx, nbr_fea = np.array(nbr_fea_idx), np.array(nbr_fea)
             nbr_fea = self.gdf.expand(nbr_fea)
             distances = [0]*len(atoms)
-
+            fix_loc, = np.where([type(constraint)==FixAtoms for constraint in atoms.constraints])
+            fix_atoms_indices = set(atoms.constraints[fix_loc[0]].get_indices())
+            fixed_atoms = np.array([i in fix_atoms_indices for i in range(len(atoms))]).reshape((-1,1))
+            distances = ~fixed_atoms
         try:
             nbr_fea = torch.Tensor(nbr_fea)
         except RuntimeError:
             print(nbr_fea)
             
         nbr_fea_idx = torch.LongTensor(nbr_fea_idx)
-        distances=torch.LongTensor(distances)
+        distances=torch.Tensor(distances)
         atom_fea = torch.Tensor(atom_fea)
 
         return (atom_fea, nbr_fea, nbr_fea_idx, distances)
