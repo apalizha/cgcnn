@@ -367,10 +367,11 @@ class StructureData():
             nbr_fea_idx, nbr_fea = np.array(nbr_fea_idx), np.array(nbr_fea)
             nbr_fea = self.gdf.expand(nbr_fea)
             distances = [0]*len(atoms)
-            fix_loc, = np.where([type(constraint)==FixAtoms for constraint in atoms.constraints])
-            fix_atoms_indices = set(atoms.constraints[fix_loc[0]].get_indices())
+            
+            fix_atoms_indices = set(atoms.constraints[0].get_indices())
             fixed_atoms = np.array([i in fix_atoms_indices for i in range(len(atoms))]).reshape((-1,1))
             distances = ~fixed_atoms
+
         try:
             nbr_fea = torch.Tensor(nbr_fea)
         except RuntimeError:

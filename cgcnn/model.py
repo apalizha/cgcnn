@@ -206,6 +206,11 @@ class CrystalGraphConvNet(nn.Module):
         """
         assert sum([len(idx_map) for idx_map in crystal_atom_idx]) ==\
             atom_fea.data.shape[0]
-        summed_fea = [torch.mean(atom_fea[idx_map], dim=0, keepdim=True)
+#         summed_fea = [torch.mean(atom_fea[idx_map], dim=0, keepdim=True)
+#                       for idx_map in crystal_atom_idx]
+        
+        filtered_atom_fea = atom_fea*distances # select only the free atoms
+        summed_fea = [torch.sum(filtered_atom_fea[idx_map], dim=0, keepdim=True)/torch.sum(distances[idx_map])
                       for idx_map in crystal_atom_idx]
+        
         return torch.cat(summed_fea, dim=0)
